@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>剧本杀预约 · 截止时间与取消传播</title>
+<style>
+:root {
+  --bg: #0e1117;
+  --panel: #161b24;
+  --panel2: #1c232e;
+  --line: #2a3442;
+  --text: #d7dee9;
+  --dim: #8494a8;
+  --ok: #3fb950;
+  --warn: #d29922;
+  --bad: #f85149;
+  --cancel: #bc8cff;
+  --drop: #6e7681;
+  --gated: #58a6ff;
+  --accent: #2f81f7;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font: 13px/1.5 -apple-system, "SF Mono", "PingFang SC", Menlo, monospace;
+}
+header {
+  padding: 14px 20px; border-bottom: 1px solid var(--line);
+  display: flex; align-items: baseline; gap: 18px; flex-wrap: wrap;
+}
+header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+header .sub { color: var(--dim); font-size: 12px; }
+main { padding: 18px 20px 60px; max-width: 1500px; margin: 0 auto; }
+.card {
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 8px; padding: 16px; margin-bottom: 16px;
+}
+.card h2 { font-size: 13px; margin: 0 0 12px; font-weight: 600; color: var(--text); }
+.card h2 .hint { color: var(--dim); font-weight: 400; margin-left: 8px; font-size: 11px; }
+.grid { display: grid; gap: 12px; }
+.g2 { grid-template-columns: 1fr 1fr; }
+.g3 { grid-template-columns: repeat(3, 1fr); }
+.g4 { grid-template-columns: repeat(4, 1fr); }
+@media (max-width: 1100px) { .g2, .g3, .g4 { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 700px) { .g2, .g3, .g4 { grid-template-columns: 1fr; } }
+
+.kpi { background: var(--panel2); border-radius: 6px; padding: 12px 14px; }
+.kpi .label { color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+.kpi .value { font-size: 22px; font-weight: 600; margin-top: 4px; font-variant-numeric: tabular-nums; }
+.kpi .delta { font-size: 11px; margin-top: 3px; color: var(--dim); }
+.kpi .delta.good { color: var(--ok); }
+.kpi .delta.bad { color: var(--bad); }
+
+table { width: 100%; border-collapse: collapse; font-size: 12px; }
+th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--dim); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: .03em; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+tr:hover td { background: rgba(255,255,255,.02); }
+
+.bar { height: 6px; background: #21262d; border-radius: 3px; overflow: hidden; margin-top: 4px; }
+.bar > i { display: block; height: 100%; }
+
+.tag {
+  display: inline-block; padding: 0 5px; border-radius: 3px;
+  font-size: 10px; line-height: 16px; border: 1px solid currentColor;
+}
+.tag.done { color: var(--ok); }
+.tag.failed { color: var(--bad); }
+.tag.cancelled { color: var(--cancel); }
+.tag.dropped { color: var(--drop); }
+.tag.gated { color: var(--gated); }
+.tag.timeout { color: var(--warn); }
+
+.controls { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; }
+.controls label { display: flex; align-items: center; gap: 6px; color: var(--dim); font-size: 12px; }
+input[type=range] { width: 130px; accent-color: var(--accent); }
+select, button {
+  background: var(--panel2); color: var(--text); border: 1px solid var(--line);
+  border-radius: 5px; padding: 4px 8px; font: inherit; font-size: 12px;
+}
+button { cursor: pointer; }
+button:hover { border-color: var(--accent); }
+.val { color: var(--text); font-variant-numeric: tabular-nums; min-width: 46px; }
+
+#traceWrap { display: grid; grid-template-columns: 1fr 340px; gap: 16px; }
+@media (max-width: 1100px) { #traceWrap { grid-template-columns: 1fr; } }
+#tree { position: relative; }
+.trow { display: grid; grid-template-columns: 230px 1fr; gap: 10px; align-items: center; padding: 2px 0; }
+.trow:hover { background: rgba(255,255,255,.03); }
+.tlabel { font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tlabel .svc { color: var(--text); }
+.tlabel .kind { color: var(--dim); font-size: 10px; }
+.tlane { position: relative; height: 16px; background: #12171f; border-radius: 3px; }
+.tspan {
+  position: absolute; top: 2px; height: 12px; border-radius: 2px;
+  min-width: 2px; opacity: .9;
+}
+.tcancel {
+  position: absolute; top: -2px; height: 20px; width: 2px; background: var(--bad);
+}
+.axis { position: relative; height: 18px; border-bottom: 1px solid var(--line); margin-bottom: 6px; margin-left: 240px; }
+.axis span { position: absolute; top: 0; font-size: 10px; color: var(--dim); transform: translateX(-50%); }
+.dlabel { font-size: 12px; color: var(--dim); margin-top: 2px; }
+
+#detail { font-size: 12px; }
+#detail .kv { display: grid; grid-template-columns: 120px 1fr; gap: 3px 8px; }
+#detail .kv div:nth-child(odd) { color: var(--dim); }
+.lineage { margin-top: 8px; }
+.lineage .step { display: flex; gap: 8px; align-items: flex-start; padding: 3px 0; }
+.lineage .dot { width: 7px; height: 7px; border-radius: 50%; margin-top: 5px; flex: none; }
+
+.legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11px; color: var(--dim); margin-top: 8px; }
+.legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 4px; }
+
+.note { color: var(--dim); font-size: 11px; line-height: 1.6; }
+.mono { font-family: inherit; }
+.scroll { max-height: 420px; overflow: auto; }
+</style>
+</head>
+<body>
+<header>
+  <h1>剧本杀门店预约 · 截止时间与取消传播</h1>
+  <span class="sub" id="meta"></span>
+</header>
+<main>
+
+<section class="card">
+  <h2>总览 <span class="hint">同一份种子、同一份拓扑，两种做法对照</span></h2>
+  <div class="grid g4" id="kpis"></div>
+  <div class="legend">
+    <span><i style="background:var(--ok)"></i>完成</span>
+    <span><i style="background:var(--cancel)"></i>被取消</span>
+    <span><i style="background:var(--drop)"></i>过期丢弃</span>
+    <span><i style="background:var(--gated)"></i>预算不足未发出</span>
+    <span><i style="background:var(--bad)"></i>失败</span>
+  </div>
+</section>
+
+<section class="card">
+  <h2>逐请求的调用树 <span class="hint">红线是入口截止时刻；每行右侧写着该跳开始时还剩多少预算</span></h2>
+  <div class="controls" style="margin-bottom:10px">
+    <label>请求 <select id="reqSel"></select></label>
+    <button id="prevReq">←</button><button id="nextReq">→</button>
+    <label>视图 <select id="modeSel">
+      <option value="propagate">传截止时间</option>
+      <option value="baseline">不传截止时间</option>
+    </select></label>
+    <label><input type="checkbox" id="onlyIssues"> 只看有问题的跳</label>
+  </div>
+  <div id="traceWrap">
+    <div>
+      <div class="axis" id="axis"></div>
+      <div id="tree"></div>
+    </div>
+    <div id="detail"></div>
+  </div>
+</section>
+
+<section class="card">
+  <h2>各服务的账 <span class="hint">到达 / 开始 / 取消 / 排队过期 / 未发出 / 白干时间</span></h2>
+  <div class="scroll"><table id="svcTable"></table></div>
+</section>
+
+<section class="card">
+  <h2>取消究竟从哪来 <span class="hint">按决策服务与原因汇总</span></h2>
+  <div class="grid g2">
+    <div><div class="note">传截止时间</div><table id="cancelProp"></table></div>
+    <div><div class="note">不传截止时间</div><table id="cancelBase"></table></div>
+  </div>
+</section>
+
+<section class="card">
+  <h2>调参与扫描 <span class="hint">拖动滑块即可看到白干工作量怎么变</span></h2>
+  <div class="controls">
+    <label>入口超时 <input type="range" id="timeout" min="400" max="8000" step="100" value="3000"><span class="val" id="timeoutVal">3000ms</span></label>
+    <label>慢服务延迟 <input type="range" id="latScale" min="50" max="300" step="25" value="100"><span class="val" id="latScaleVal">1.00×</span></label>
+    <button id="reset">重置</button>
+  </div>
+  <div id="sweepOut" style="margin-top:14px"></div>
+  <details style="margin-top:12px"><summary class="note">完整扫描表</summary><div id="sweepTable" class="scroll"></div></details>
+</section>
+
+<section class="card">
+  <h2>事后验收 <span class="hint">日志重放，而不是信任运行时的计数器</span></h2>
+  <div class="grid g2">
+    <div><div class="note">传截止时间</div><div id="checkProp"></div></div>
+    <div><div class="note">不传截止时间</div><div id="checkBase"></div></div>
+  </div>
+</section>
+
+</main>
+<script>
+const S = { report: null, sweep: null, mode: 'propagate', reqIdx: 0, selected: null };
+
+const fmt = {
+  ms: v => Math.abs(v) >= 1000 ? (v/1000).toFixed(2) + 's' : (v||0).toFixed(v>=100?0:1) + 'ms',
+  s: v => v >= 60000 ? (v/60000).toFixed(1) + 'min' : v >= 1000 ? (v/1000).toFixed(1) + 's' : (v||0).toFixed(0) + 'ms',
+  n: v => (v||0).toLocaleString('en-US'),
+  pct: v => (v||0).toFixed(1) + '%',
+};
+const pad = (v, w) => String(v).padStart(w);
+
+const COLORS = {
+  done: '#3fb950', failed: '#f85149', cancelled: '#bc8cff',
+  dropped: '#6e7681', gated: '#58a6ff', queued: '#d29922',
+  running: '#2f81f7', waiting: '#2f81f7', inflight: '#2f81f7',
+};
+const KLABEL = {
+  deadline:'预算耗尽', caller:'上游取消', sibling:'兄弟调用失败',
+  shutdown:'进程停止', discarded:'排队过期', tightened:'收紧预算', '':'',
+};
+
+async function boot() {
+  const r = await fetch('report.json', {cache:'no-store'});
+  S.report = await r.json();
+  const m = S.report.propagate;
+  document.getElementById('meta').textContent =
+    `种子 ${S.report.seed} · ${fmt.n(m.requests)} 条请求 · ${m.services} 个服务 · 入口超时 ${fmt.ms(m.entry_timeout_ms)} · 仿真 ${fmt.s(m.simulated_seconds*1000)}`;
+  renderKpis(); renderServices(); renderCancels(); renderChecks();
+  fillReqSelect(); renderTrace(); bindControls();
+  try { S.sweep = await (await fetch('sweep.json',{cache:'no-store'})).json(); } catch(e) { S.sweep=null; }
+  renderSweep();
+}
+
+function renderKpis() {
+  const p=S.report.propagate, b=S.report.baseline, c=S.report.compare;
+  const k=(label,val,delta,cls)=>`<div class="kpi"><div class="label">${label}</div>
+    <div class="value">${val}</div><div class="delta ${cls||''}">${delta||''}</div></div>`;
+  document.getElementById('kpis').innerHTML = [
+    k('白干的处理时间', fmt.s(p.wasted_proc_ms), `不传 ${fmt.s(b.wasted_proc_ms)} → 省 ${fmt.s(c.wasted_proc_saved_ms)}（${c.wasted_proc_saved_pct.toFixed(0)}%）`, 'good'),
+    k('房间被白锁', fmt.s(p.rooms_wasted_ms), `不传 ${fmt.s(b.rooms_wasted_ms)} → 省 ${(c.rooms_wasted_saved_pct).toFixed(1)}%`, 'good'),
+    k('过期后仍开始处理', fmt.n(p.started_after_deadline), `不传 ${fmt.n(b.started_after_deadline)}`, p.started_after_deadline===0?'good':'bad'),
+    k('客户端走后仍干活', fmt.n(p.started_after_give_up), `不传 ${fmt.n(b.started_after_give_up)}`, p.started_after_give_up===0?'good':'bad'),
+    k('幽灵订单/扣款', fmt.n(p.orphan_bookings), `不传 ${fmt.n(b.orphan_bookings)}`, p.orphan_bookings===0?'good':'bad'),
+    k('过期后发出的通知', fmt.n(p.notify_after_give_up), `不传 ${fmt.n(b.notify_after_give_up)}`, 'good'),
+    k('单次房间最长占用', fmt.ms(p.room_max_hold_ms), `不传 ${fmt.ms(b.room_max_hold_ms)}`, 'good'),
+    k('取消后未清理', fmt.n(p.cleanup_missed), `${fmt.n(p.cleanup_ran)}/${fmt.n(p.cleanup_required)} 已清理`, p.cleanup_missed===0?'good':'bad'),
+  ].join('');
+}
+
+function renderServices() {
+  const p=S.report.propagate;
+  const rows=[`<tr><th>服务</th><th class="num">到达</th><th class="num">开始</th><th class="num">完成</th>
+    <th class="num">取消</th><th class="num">排队过期</th><th class="num">未发出</th>
+    <th class="num">处理耗时</th><th class="num">其中白干</th><th class="num">排队 p99</th></tr>`];
+  const svc=[...p.per_service].sort((a,b)=>(b.cancelled+b.queue_expired+b.gated)-(a.cancelled+a.queue_expired+a.gated));
+  for (const s of svc) {
+    if (!s.arrivals && !s.gated) continue;
+    const wp = s.proc_ms>0 ? s.wasted_proc_ms/s.proc_ms*100 : 0;
+    rows.push(`<tr>
+      <td>${s.name}</td>
+      <td class="num">${fmt.n(s.arrivals)}</td>
+      <td class="num">${fmt.n(s.starts)}</td>
+      <td class="num" style="color:var(--ok)">${fmt.n(s.done)}</td>
+      <td class="num" style="color:${s.cancelled?'var(--cancel)':'inherit'}">${fmt.n(s.cancelled)}</td>
+      <td class="num" style="color:${s.queue_expired?'var(--drop)':'inherit'}">${fmt.n(s.queue_expired)}</td>
+      <td class="num" style="color:${s.gated?'var(--gated)':'inherit'}">${fmt.n(s.gated)}</td>
+      <td class="num">${fmt.s(s.proc_ms)}</td>
+      <td class="num" style="color:${wp>10?'var(--bad)':'var(--warn)'}">${fmt.s(s.wasted_proc_ms)}
+        <div class="bar"><i style="width:${Math.min(100,wp)}%;background:var(--bad)"></i></div></td>
+      <td class="num">${fmt.ms(s.queue_wait.p99_ms)}</td>
+    </tr>`);
+  }
+  document.getElementById('svcTable').innerHTML = rows.join('');
+}
+
+function cancelTable(id, m) {
+  const rows=[`<tr><th>原因</th><th>决策服务</th><th class="num">次数</th></tr>`];
+  for (const c of m.cancel_by.slice(0,12)) {
+    rows.push(`<tr><td>${KLABEL[c.kind]||c.kind}${c.note?`<div class="note">${c.note}</div>`:''}</td>
+      <td>${c.host}</td><td class="num">${fmt.n(c.count)}</td></tr>`);
+  }
+  if (!m.cancel_by.length) rows.push(`<tr><td colspan="3" class="note">没有取消</td></tr>`);
+  document.getElementById(id).innerHTML = rows.join('');
+}
+function renderCancels() {
+  cancelTable('cancelProp', S.report.propagate);
+  cancelTable('cancelBase', S.report.baseline);
+}
+
+function renderChecks() {
+  const box=(id,c)=>{
+    const ok=x=>x?'var(--ok)':'var(--bad)';
+    document.getElementById(id).innerHTML=`<div style="display:grid;grid-template-columns:200px 1fr;gap:4px 10px">
+      <div>处理开始次数</div><div>${fmt.n(c.starts)}</div>
+      <div>过期后开始</div><div style="color:${ok(c.started_after_deadline===0)}">${fmt.n(c.started_after_deadline)}</div>
+      <div>客户端走后开始</div><div style="color:${ok(c.started_after_client_left===0)}">${fmt.n(c.started_after_client_left)}</div>
+      <div>截止时间被放宽</div><div style="color:${ok(c.deadline_widened===0)}">${fmt.n(c.deadline_widened)}</div>
+      <div>取消总数</div><div>${fmt.n(c.cancels)}</div>
+      <div>需清理 / 已清理</div><div style="color:${ok(c.cleanup_missing===0)}">${fmt.n(c.cleanup_needed)} / ${fmt.n(c.cleanup_ran)}（缺 ${fmt.n(c.cleanup_missing)}）</div>
+      <div>清理超上限</div><div style="color:${ok(c.cleanup_over_cap===0)}">${fmt.n(c.cleanup_over_cap)}（最长 ${c.max_cleanup_ms}ms）</div>
+      <div>异步消费 / 丢弃</div><div>${fmt.n(c.async_consumed)} / ${fmt.n(c.async_dropped)}（其中请求已放弃 ${fmt.n(c.async_dropped_stale)}）</div>
+    </div>` + (c.problems&&c.problems.length ? `<div class="note" style="color:var(--bad);margin-top:8px">${c.problems.slice(0,4).join('<br>')}</div>`:'');
+  };
+  box('checkProp', S.report.checks.propagate);
+  box('checkBase', S.report.checks.baseline);
+}
+
+function fillReqSelect() {
+  const sel=document.getElementById('reqSel');
+  const traces=S.report.propagate.traces;
+  sel.innerHTML=traces.map((t,i)=>`<option value="${i}">#${t.id} · ${outcomeLabel(t.outcome)} · ${t.end_to_end_ms.toFixed(0)}ms</option>`).join('');
+  sel.onchange=()=>{ S.reqIdx=+sel.value; S.selected=null; renderTrace(); };
+}
+
+function outcomeLabel(o){ return {success:'成功',failed:'失败',timeout:'超时'}[o]||o; }
+
+function tracesForMode() {
+  const base=S.report.propagate.traces;
+  if (S.mode==='propagate') return base;
+  const ids=new Set(base.map(t=>t.id));
+  return (S.report.baseline.traces||[]).filter(t=>ids.has(t.id));
+}
+
+function renderTrace() {
+  const list=tracesForMode();
+  const t=list.find(x=>x.id===list[S.reqIdx]?.id) || list[0];
+  const tree=document.getElementById('tree'), axis=document.getElementById('axis'), det=document.getElementById('detail');
+  if (!t) { tree.innerHTML='<div class="note">该视图下没有对应样本。</div>'; axis.innerHTML=''; det.innerHTML=''; return; }
+
+  const onlyIssues=document.getElementById('onlyIssues').checked;
+  const maxT=Math.max(t.give_up_ms, ...t.spans.map(s=>s.end_ms), 1)*1.03;
+  const pct=v=>Math.max(0,Math.min(100, v/maxT*100));
+
+  axis.innerHTML=niceTicks(maxT).map(v=>`<span style="left:${pct(v)}%">${v>=1000?(v/1000).toFixed(1)+'s':v.toFixed(0)+'ms'}</span>`).join('');
+
+  // Depth-first order so a parent's children sit directly under it; parallel
+  // siblings keep their issue order.
+  const byId={}; t.spans.forEach(s=>byId[s.id]=s);
+  const kids={}; t.spans.forEach(s=>{ (kids[s.parent||'root'] ||= []).push(s); });
+  for(const k in kids) kids[k].sort((a,b)=>a.start_ms-b.start_ms);
+  const ordered=[];
+  (function dfs(id){ (kids[id]||[]).forEach(s=>{ ordered.push(s); dfs(s.id); }); })('root');
+  let spans=ordered;
+  if (onlyIssues) spans=spans.filter(s=>['cancelled','dropped','failed','gated'].includes(s.state));
+
+  tree.innerHTML=spans.map(s=>{
+    const left=pct(s.start_ms), w=Math.max(0.3, pct(s.end_ms)-left);
+    const color=COLORS[s.state]||'#6e7681';
+    const rem=s.has_deadline?`剩 ${fmt.ms(Math.max(0,s.remaining_start_ms))}`:'无截止';
+    const dlMark=s.has_deadline?`<div style="position:absolute;left:${pct(s.deadline_ms)}%;top:0;height:100%;width:1px;background:rgba(248,81,73,.55)"></div>`:'';
+    return `<div class="trow" data-id="${s.id}">
+      <div class="tlabel" style="padding-left:${s.depth*9}px"><span class="svc">${s.service}</span>
+        <span class="kind"> · ${rem}</span></div>
+      <div class="tlane">
+        <div class="tspan" style="left:${left}%;width:${w}%;background:${color}" title="${s.service} · ${s.state}"></div>
+        ${dlMark}
+      </div></div>`;
+  }).join('') || '<div class="note">该请求没有异常跳。</div>';
+
+  tree.querySelectorAll('.trow').forEach(row=>row.onclick=()=>{S.selected=row.dataset.id; showDetail(t,row.dataset.id);});
+  const pick=(S.selected&&spans.find(s=>s.id===S.selected))?S.selected:(spans.find(s=>['cancelled','dropped','failed','gated'].includes(s.state))||spans[0]||{id:null}).id;
+  if (pick) showDetail(t,pick); else det.innerHTML='';
+}
+
+function niceTicks(max){ const step=max>4000?1000:max>1500?500:max>700?200:max>300?100:50; const out=[]; for(let v=0;v<=max;v+=step)out.push(v); return out; }
+
+function showDetail(t,id) {
+  const s=t.spans.find(x=>x.id===id); if(!s){return;}
+  const kv=(k,v)=>`<div>${k}</div><div>${v}</div>`;
+  let h=`<div style="font-size:13px;font-weight:600;margin-bottom:8px">${s.service}
+    <span class="tag ${s.state}">${stateLabel(s.state)}</span></div>
+    <div class="kv">${kv('调用路径',s.link)}
+    ${kv('类型',s.kind==='async'?'异步消息':'同步 RPC')}
+    ${kv('开始 / 结束',`${s.start_ms.toFixed(1)} / ${s.end_ms.toFixed(1)} ms`)}
+    ${kv('排队 / 处理',`${s.queue_ms.toFixed(1)} / ${s.proc_ms.toFixed(1)} ms`)}`;
+  if (s.has_deadline) {
+    h+=kv('截止时刻',`${s.deadline_ms.toFixed(0)}ms（开始时尚余 ${s.remaining_start_ms.toFixed(0)}ms，结束时 ${s.remaining_end_ms.toFixed(0)}ms）`);
+  }
+  if (s.cancel_kind) h+=kv('取消原因',`<span style="color:var(--cancel)">${KLABEL[s.cancel_kind]||s.cancel_kind}</span>`)+kv('取消决定方',`<span style="color:var(--cancel)">${s.cancel_host||''}</span>`);
+  if (s.note) h+=kv('备注',s.note);
+  h+='</div>';
+  if (s.lineage&&s.lineage.length) {
+    h+=`<div class="lineage"><div class="note">预算收紧 / 取消的传下来源</div>`;
+    for (const st of s.lineage) {
+      const [kind,host]=[st.split('@')[0], st.split('@').slice(1).join('@')];
+      h+=`<div class="step"><span class="dot" style="background:${kind==='tightened'?'var(--gated)':'var(--cancel)'}"></span>
+        <div>${KLABEL[kind]||kind} <span style="color:var(--dim)">· ${host||''}</span></div></div>`;
+    }
+    h+=`</div>`;
+  }
+  if (s.cleanup) {
+    h+=`<div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--line)">
+      <div class="note">清理动作</div>
+      <div class="kv" style="margin-top:4px">${kv('是否执行', s.cleanup.ran?'已执行':'未执行')}
+      ${kv('耗时', `${s.cleanup.duration_ms.toFixed(1)}ms${s.cleanup.capped?'（触顶）':''}`)}</div></div>`;
+  }
+  if (s.lock_room!==undefined) h+=`<div class="kv" style="margin-top:6px">${kv('锁住房间', '#'+s.lock_room)}</div>`;
+  document.getElementById('detail').innerHTML=h;
+}
+
+function stateLabel(s){ return {done:'完成',failed:'失败',cancelled:'已取消',dropped:'已丢弃',gated:'未发出',running:'处理中',queued:'排队中',waiting:'等待子调用',inflight:'在途'}[s]||s; }
+
+function bindControls() {
+  document.getElementById('modeSel').onchange=e=>{ S.mode=e.target.value; S.selected=null; renderTrace(); };
+  document.getElementById('prevReq').onclick=()=>step(-1);
+  document.getElementById('nextReq').onclick=()=>step(1);
+  document.getElementById('onlyIssues').onchange=renderTrace;
+  const t=document.getElementById('timeout'), l=document.getElementById('latScale');
+  const upd=()=>{
+    document.getElementById('timeoutVal').textContent=t.value+'ms';
+    document.getElementById('latScaleVal').textContent=(l.value/100).toFixed(2)+'×';
+    renderSweep();
+  };
+  [t,l].forEach(el=>el.oninput=upd);
+  document.getElementById('reset').onclick=()=>{t.value=3000;l.value=100;upd();};
+  upd();
+}
+
+function step(d){
+  const n=S.report.propagate.traces.length;
+  S.reqIdx=(S.reqIdx+d+n)%n;
+  document.getElementById('reqSel').value=S.reqIdx;
+  S.selected=null; renderTrace();
+}
+
+function nearestRow(sw, to, lat){
+  let best=null,bd=Infinity;
+  for(const r of sw.rows){
+    const d=Math.abs(r.entry_timeout_ms-to)/1000 + Math.abs(r.lat_scale-lat)*2;
+    if(d<bd){bd=d;best=r;}
+  }
+  return best;
+}
+
+function renderSweep() {
+  const out=document.getElementById('sweepOut'), tbl=document.getElementById('sweepTable');
+  const sw=S.sweep;
+  if(!sw){ out.innerHTML='<div class="note">还没有扫描数据。运行 <span class="mono">go run ./cmd/sweep</span> 生成 web/sweep.json。</div>'; tbl.innerHTML=''; return; }
+  const to=+document.getElementById('timeout').value, lat=+document.getElementById('latScale').value/100;
+  const row=nearestRow(sw,to,lat);
+  const p=row.propagate, b=row.baseline;
+  out.innerHTML=`<div class="note">最接近的扫描点：入口超时 ${row.entry_timeout_ms}ms · 慢服务延迟 ×${row.lat_scale.toFixed(2)}（每点 ${fmt.n(sw.requests)} 条请求，${sw.rate_per_sec} req/s）</div>
+    <div class="grid g3" style="margin-top:8px">
+      <div class="kpi"><div class="label">白干处理时间</div><div class="value">${fmt.s(p.wasted_proc_ms)}</div><div class="delta">不传 ${fmt.s(b.wasted_proc_ms)}</div></div>
+      <div class="kpi"><div class="label">房间白锁</div><div class="value">${fmt.s(p.rooms_wasted_ms)}</div><div class="delta">不传 ${fmt.s(b.rooms_wasted_ms)}</div></div>
+      <div class="kpi"><div class="label">客户端走后仍开始</div><div class="value">${fmt.n(p.started_after_give_up)}</div><div class="delta">不传 ${fmt.n(b.started_after_give_up)}</div></div>
+    </div>`;
+  // Full table grouped by latency scale
+  const lats=[...new Set(sw.rows.map(r=>r.lat_scale))].sort((a,b)=>a-b);
+  let h=`<table><tr><th>入口超时</th>`;
+  for(const l of lats) h+=`<th class="num">白干 传(x${l})</th><th class="num">白干 不传(x${l})</th>`;
+  h+=`</tr>`;
+  const tos=[...new Set(sw.rows.map(r=>r.entry_timeout_ms))].sort((a,b)=>a-b);
+  for(const to of tos){
+    h+=`<tr><td>${to}ms</td>`;
+    for(const l of lats){
+      const r=sw.rows.find(x=>x.entry_timeout_ms===to&&Math.abs(x.lat_scale-l)<1e-9);
+      if(!r){h+=`<td></td><td></td>`;continue;}
+      h+=`<td class="num">${fmt.s(r.propagate.wasted_proc_ms)}</td><td class="num" style="color:var(--dim)">${fmt.s(r.baseline.wasted_proc_ms)}</td>`;
+    }
+    h+=`</tr>`;
+  }
+  h+=`</table>`;
+  tbl.innerHTML=h;
+}
+
+boot();
+</script>
+</body>
+</html>

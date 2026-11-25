@@ -16,3 +16,9 @@ node_modules/
 __pycache__/
 .venv/
 venv/
+
+# Generated simulation artifacts
+results/
+web/report.json
+web/sweep.json
+/tmp/
